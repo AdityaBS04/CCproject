@@ -113,9 +113,10 @@ const SystemStats = () => {
     ],
   };
 
-  // Chart options
+  // Chart options with more control over size
   const pieOptions = {
     responsive: true,
+    maintainAspectRatio: false,
     plugins: {
       legend: {
         position: 'bottom',
@@ -130,6 +131,16 @@ const SystemStats = () => {
   if (error) {
     return <div className="text-center py-10 text-red-600">{error}</div>;
   }
+
+  // Check if chart data is empty
+  const noVirtualizationData = 
+    statistics.virtualizationBreakdown.docker === 0 && 
+    statistics.virtualizationBreakdown.gvisor === 0;
+    
+  const noStatusData = 
+    statistics.statusBreakdown.success === 0 && 
+    statistics.statusBreakdown.error === 0 && 
+    statistics.statusBreakdown.timeout === 0;
 
   return (
     <div>
@@ -170,14 +181,26 @@ const SystemStats = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <div className="card">
           <h3 className="text-xl font-semibold mb-4 text-center">Virtualization Type</h3>
-          <div className="h-64">
-            <Pie data={virtualizationData} options={pieOptions} />
+          <div className="h-64 w-full" style={{ maxHeight: '250px', position: 'relative' }}>
+            {noVirtualizationData ? (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                No virtualization data available yet.
+              </div>
+            ) : (
+              <Pie data={virtualizationData} options={pieOptions} />
+            )}
           </div>
         </div>
         <div className="card">
           <h3 className="text-xl font-semibold mb-4 text-center">Execution Status</h3>
-          <div className="h-64">
-            <Pie data={statusData} options={pieOptions} />
+          <div className="h-64 w-full" style={{ maxHeight: '250px', position: 'relative' }}>
+            {noStatusData ? (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                No status data available yet.
+              </div>
+            ) : (
+              <Pie data={statusData} options={pieOptions} />
+            )}
           </div>
         </div>
       </div>

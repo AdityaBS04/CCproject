@@ -167,6 +167,7 @@ const buildFunctionImage = async (function_) => {
 };
 
 // Run function in Docker container with gVisor runtime
+// Run function in Docker container with gVisor runtime
 const runFunction = async (function_, payload, requestId) => {
   try {
     // Create container with gVisor runtime
@@ -206,9 +207,12 @@ const runFunction = async (function_, payload, requestId) => {
     // Get container stats before execution
     const statsBefore = await container.stats({ stream: false });
     
-    // Execute function - REPLACED FETCH WITH AXIOS HERE
+    // Execute function using host.docker.internal
     const startTime = Date.now();
-    const response = await axios.post(`http://localhost:${port}`, payload, {
+    
+    logger.info(`Connecting to gVisor container at host.docker.internal:${port}`);
+    
+    const response = await axios.post(`http://host.docker.internal:${port}`, payload, {
       headers: {
         'Content-Type': 'application/json',
       }
@@ -225,7 +229,7 @@ const runFunction = async (function_, payload, requestId) => {
     const systemDelta = statsAfter.cpu_stats.system_cpu_usage - statsBefore.cpu_stats.system_cpu_usage;
     const cpuUsage = (cpuDelta / systemDelta) * statsAfter.cpu_stats.online_cpus * 100;
     
-    // Parse response - CHANGED TO USE AXIOS RESPONSE DATA
+    // Parse response
     const result = response.data;
     
     // Stop and remove container

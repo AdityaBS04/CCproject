@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { logger } = require('../utils/logger');
 const { v4: uuidv4 } = require('uuid');
+const axios = require('axios');
 
 // Create Docker client
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -205,14 +206,12 @@ const runFunction = async (function_, payload, requestId) => {
     // Get container stats before execution
     const statsBefore = await container.stats({ stream: false });
     
-    // Execute function
+    // Execute function - REPLACED FETCH WITH AXIOS HERE
     const startTime = Date.now();
-    const response = await fetch(`http://localhost:${port}`, {
-      method: 'POST',
+    const response = await axios.post(`http://localhost:${port}`, payload, {
       headers: {
         'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
+      }
     });
     
     const executionTime = Date.now() - startTime;
@@ -226,8 +225,8 @@ const runFunction = async (function_, payload, requestId) => {
     const systemDelta = statsAfter.cpu_stats.system_cpu_usage - statsBefore.cpu_stats.system_cpu_usage;
     const cpuUsage = (cpuDelta / systemDelta) * statsAfter.cpu_stats.online_cpus * 100;
     
-    // Parse response
-    const result = await response.json();
+    // Parse response - CHANGED TO USE AXIOS RESPONSE DATA
+    const result = response.data;
     
     // Stop and remove container
     await container.stop();

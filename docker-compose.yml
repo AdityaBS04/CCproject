@@ -20,6 +20,7 @@ services:
     restart: unless-stopped
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    user: "1000:989"  # Use current user ID and Docker group ID
 
   mongodb:
     image: mongo:latest

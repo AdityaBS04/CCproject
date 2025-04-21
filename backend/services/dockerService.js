@@ -4,6 +4,7 @@ const path = require('path');
 const { logger } = require('../utils/logger');
 const { v4: uuidv4 } = require('uuid');
 const axios = require('axios');
+const { exec } = require('child_process');
 
 // Create Docker client
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
@@ -167,79 +168,157 @@ const buildFunctionImage = async (function_) => {
 };
 
 // Run function in Docker container
+// Run function in Docker container
 const runFunction = async (function_, payload, requestId) => {
   try {
-    // Create container
-    const container = await docker.createContainer({
-      Image: function_.imageId,
-      Env: Object.entries(function_.environment).map(([key, value]) => `${key}=${value}`),
-      ExposedPorts: {
-        '8080/tcp': {}
-      },
-      HostConfig: {
-        PortBindings: {
-          '8080/tcp': [{ HostPort: '0' }] // Dynamically assign port
-        },
-        Memory: 128 * 1024 * 1024, // 128MB limit
-        MemorySwap: 128 * 1024 * 1024, // No swap
-        CpuPeriod: 100000,
-        CpuQuota: 50000, // 50% CPU limit
-      },
-      Labels: {
-        'function_id': function_._id.toString(),
-        'request_id': requestId
-      }
-    });
+    logger.info(`Executing function ${function_.name} using direct execution`);
     
-    // Start container
-    await container.start();
+    // Create temporary directory for function files
+    const tempDir = await createTempDirectory(function_._id);
     
-    // Get container port mapping
-    const containerInfo = await container.inspect();
-    const port = containerInfo.NetworkSettings.Ports['8080/tcp'][0].HostPort;
-    
-    // Wait for container to be ready (simple delay for now)
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Get container stats before execution
-    const statsBefore = await container.stats({ stream: false });
-    
-    // Execute function - REPLACED FETCH WITH AXIOS HERE
+    // Start timing
     const startTime = Date.now();
-    const response = await axios.post(`http://host.docker.internal:${port}`, payload, {
-      headers: {
-        'Content-Type': 'application/json',
-      }
-    });
     
-    const executionTime = Date.now() - startTime;
-    
-    // Get container stats after execution
-    const statsAfter = await container.stats({ stream: false });
-    
-    // Calculate resource usage
-    const memoryUsage = statsAfter.memory_stats.usage - statsAfter.memory_stats.stats.cache;
-    const cpuDelta = statsAfter.cpu_stats.cpu_usage.total_usage - statsBefore.cpu_stats.cpu_usage.total_usage;
-    const systemDelta = statsAfter.cpu_stats.system_cpu_usage - statsBefore.cpu_stats.system_cpu_usage;
-    const cpuUsage = (cpuDelta / systemDelta) * statsAfter.cpu_stats.online_cpus * 100;
-    
-    // Parse response - CHANGED TO USE AXIOS RESPONSE DATA
-    const result = response.data;
-    
-    // Stop and remove container
-    await container.stop();
-    await container.remove();
-    
-    return {
-      data: result,
-      executionTime,
-      memoryUsage,
-      cpuUsage,
-      status: response.status >= 200 && response.status < 300 ? 'success' : 'error',
-      statusCode: response.status
-    };
+    if (function_.language === 'javascript') {
+      // Write the function code to a file
+      const functionJs = `
+module.exports = async (event) => {
+${function_.code}
+};
+`;
+      const functionFile = path.join(tempDir, 'function.js');
+      fs.writeFileSync(functionFile, functionJs);
+      
+      // Create a wrapper script
+      const wrapperJs = `
+const fn = require('./function.js');
+const payload = ${JSON.stringify(payload)};
+
+async function run() {
+  try {
+    const result = await fn(payload);
+    console.log(JSON.stringify(result));
   } catch (error) {
-    logger.error(`Error running function in Docker: ${error.message}`);
+    console.error(error.message);
+    process.exit(1);
+  }
+}
+
+run();
+`;
+      const wrapperFile = path.join(tempDir, 'wrapper.js');
+      fs.writeFileSync(wrapperFile, wrapperJs);
+      
+      // Execute using Node.js
+      const result = await new Promise((resolve, reject) => {
+        exec(`node ${wrapperFile}`, (error, stdout, stderr) => {
+          if (error) {
+            reject(new Error(stderr || error.message));
+            return;
+          }
+          
+          if (stderr) {
+            reject(new Error(stderr));
+            return;
+          }
+          
+          try {
+            resolve(JSON.parse(stdout.trim()));
+          } catch (parseError) {
+            reject(new Error(`Invalid function output: ${stdout}`));
+          }
+        });
+      });
+      
+      // Calculate execution time
+      const executionTime = Date.now() - startTime;
+      
+      // Clean up temp files
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      
+      return {
+        data: result,
+        executionTime,
+        memoryUsage: 0,
+        cpuUsage: 0,
+        status: 'success',
+        statusCode: 200
+      };
+      
+    } else if (function_.language === 'python') {
+      // For Python functions
+      // Write the function code to a file with proper indentation
+      const functionPy = `
+def handler(event):
+    ${function_.code.replace(/\n/g, '\n    ')}
+`;
+      const functionFile = path.join(tempDir, 'function.py');
+      fs.writeFileSync(functionFile, functionPy);
+      
+      // Create a wrapper script
+      const payloadJson = JSON.stringify(payload).replace(/'/g, "\\'");
+      
+      const wrapperPy = `
+import json
+import sys
+import os
+
+# Add the current directory to path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from function import handler
+
+try:
+    payload = json.loads('${payloadJson}')
+    result = handler(payload)
+    print(json.dumps(result))
+except Exception as e:
+    print(f"Error: {str(e)}", file=sys.stderr)
+    sys.exit(1)
+`;
+      const wrapperFile = path.join(tempDir, 'wrapper.py');
+      fs.writeFileSync(wrapperFile, wrapperPy);
+      
+      // Execute using Python
+      const result = await new Promise((resolve, reject) => {
+        exec(`python ${wrapperFile}`, (error, stdout, stderr) => {
+          if (error) {
+            reject(new Error(stderr || error.message));
+            return;
+          }
+          
+          if (stderr) {
+            reject(new Error(stderr));
+            return;
+          }
+          
+          try {
+            resolve(JSON.parse(stdout.trim()));
+          } catch (parseError) {
+            reject(new Error(`Invalid function output: ${stdout}`));
+          }
+        });
+      });
+      
+      // Calculate execution time
+      const executionTime = Date.now() - startTime;
+      
+      // Clean up temp files
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      
+      return {
+        data: result,
+        executionTime,
+        memoryUsage: 0,
+        cpuUsage: 0,
+        status: 'success',
+        statusCode: 200
+      };
+    } else {
+      throw new Error(`Unsupported language: ${function_.language}`);
+    }
+  } catch (error) {
+    logger.error(`Error executing function: ${error.message}`);
     throw error;
   }
 };

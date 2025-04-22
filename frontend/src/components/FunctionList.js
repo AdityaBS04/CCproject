@@ -90,6 +90,7 @@ const FunctionList = () => {
               <td className="py-3 px-4">
                 <div className="flex space-x-2">
                   <Link to={`/function/${fn._id}`} className="text-sm text-blue-600 hover:text-blue-800">View</Link>
+                  <Link to={`/edit/${fn._id}`} className="text-sm text-green-600 hover:text-green-800">Edit</Link>
                   <button 
                     onClick={() => handleDelete(fn._id)} 
                     className="text-sm text-red-600 hover:text-red-800"

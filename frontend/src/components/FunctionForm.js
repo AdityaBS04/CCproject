@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import SyntaxHighlighter from 'react-syntax-highlighter';
 import { docco } from 'react-syntax-highlighter/dist/esm/styles/hljs';
 
-const FunctionForm = () => {
+const FunctionForm = ({ 
+  initialData = null,
+  submitEndpoint = '/api/functions',
+  method = 'post',
+  submitButtonText = 'Create Function',
+  title = 'Create New Function'
+}) => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     name: '',
@@ -16,9 +22,32 @@ const FunctionForm = () => {
     environment: {}
   });
   
-  const [creating, setCreating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [envVars, setEnvVars] = useState([{ key: '', value: '' }]);
+  
+  // Initialize form with initialData if provided (for editing)
+  useEffect(() => {
+    if (initialData) {
+      setFormData({
+        name: initialData.name || '',
+        route: initialData.route || '/',
+        code: initialData.code || '',
+        language: initialData.language || 'javascript',
+        timeout: initialData.timeout || 30000,
+        virtualizationType: initialData.virtualizationType || 'docker',
+        environment: initialData.environment || {}
+      });
+      
+      // Set up environment variables for the form
+      if (initialData.environment) {
+        const envArray = Object.entries(initialData.environment).map(([key, value]) => ({ key, value }));
+        if (envArray.length > 0) {
+          setEnvVars(envArray);
+        }
+      }
+    }
+  }, [initialData]);
   
   const handleChange = (e) => {
     setFormData({
@@ -80,7 +109,7 @@ const FunctionForm = () => {
     e.preventDefault();
     
     try {
-      setCreating(true);
+      setSubmitting(true);
       setError(null);
       
       // Validate form
@@ -89,14 +118,19 @@ const FunctionForm = () => {
       }
       
       // Submit function
-      const response = await axios.post('/api/functions', formData);
+      let response;
+      if (method === 'post') {
+        response = await axios.post(submitEndpoint, formData);
+      } else if (method === 'put') {
+        response = await axios.put(submitEndpoint, formData);
+      }
       
       // Redirect to function details page
       navigate(`/function/${response.data._id}`);
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Failed to create function');
-      setCreating(false);
-      console.error('Error creating function:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to save function');
+      setSubmitting(false);
+      console.error('Error saving function:', err);
     }
   };
   
@@ -127,7 +161,7 @@ return {
   
   return (
     <div className="card">
-      <h2 className="text-2xl font-bold mb-6">Create New Function</h2>
+      <h2 className="text-2xl font-bold mb-6">{title}</h2>
       
       {error && (
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
@@ -278,16 +312,16 @@ return {
             type="button"
             onClick={() => navigate('/')}
             className="btn btn-secondary"
-            disabled={creating}
+            disabled={submitting}
           >
             Cancel
           </button>
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={creating}
+            disabled={submitting}
           >
-            {creating ? 'Creating...' : 'Create Function'}
+            {submitting ? 'Saving...' : submitButtonText}
           </button>
         </div>
       </form>

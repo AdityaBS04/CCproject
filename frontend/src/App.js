@@ -5,6 +5,7 @@ import Home from './pages/Home';
 import CreateFunction from './pages/CreateFunction';
 import FunctionDetail from './pages/FunctionDetail';
 import SystemDashboard from './pages/SystemDashboard';
+import EditFunction from './pages/EditFunction';
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/create" element={<CreateFunction />} />
+            <Route path="/edit/:id" element={<EditFunction />} />
             <Route path="/function/:id" element={<FunctionDetail />} />
             <Route path="/dashboard" element={<SystemDashboard />} />
           </Routes>
